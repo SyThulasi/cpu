@@ -35,7 +35,7 @@ module cpu_tb;
         
         // METHOD 1: manually loading instructions to instr_mem
         
-        {instr_mem[10'd3], instr_mem[10'd2], instr_mem[10'd1], instr_mem[10'd0]}        = 32'b00000000_00000000_00000000_00001001;  //loadi 0     #9
+        /* {instr_mem[10'd3], instr_mem[10'd2], instr_mem[10'd1], instr_mem[10'd0]}        = 32'b00000000_00000000_00000000_00001001;  //loadi 0     #9
         {instr_mem[10'd7], instr_mem[10'd6], instr_mem[10'd5], instr_mem[10'd4]}        = 32'b00000110_00000001_00000000_00000000;  //j     #1     
         {instr_mem[10'd11], instr_mem[10'd10], instr_mem[10'd9], instr_mem[10'd8]}      = 32'b00000000_00000001_00000000_00000100;  //loadi 1     #8
         {instr_mem[10'd15], instr_mem[10'd14], instr_mem[10'd13], instr_mem[10'd12]}    = 32'b00000000_00000001_00000000_00001010;  //loadi 1     #10  
@@ -43,10 +43,10 @@ module cpu_tb;
         {instr_mem[10'd23], instr_mem[10'd22], instr_mem[10'd21], instr_mem[10'd20]}    = 32'b00000000_00000010_00000000_00001001;  //loadi 2     #9
         {instr_mem[10'd27], instr_mem[10'd26], instr_mem[10'd25], instr_mem[10'd24]}    = 32'b00000111_00000001_00000010_00000000;  //beq   #1  2  0
         {instr_mem[10'd31], instr_mem[10'd30], instr_mem[10'd29], instr_mem[10'd28]}    = 32'b00000011_00000011_00000000_00000001;  //sub   3   0  1
-        {instr_mem[10'd35], instr_mem[10'd34], instr_mem[10'd33], instr_mem[10'd32]}    = 32'b00000010_00000011_00000000_00000001;  //add   3   0  1
+        {instr_mem[10'd35], instr_mem[10'd34], instr_mem[10'd33], instr_mem[10'd32]}    = 32'b00000010_00000011_00000000_00000001;  //add   3   0  1 */
         
         // METHOD 2: loading instr_mem content from instr_mem.mem file
-        // $readmemb("instr_mem.mem", instr_mem);
+        $readmemb("instr_mem.mem", instr_mem);
     end
     
     /* 
@@ -60,7 +60,7 @@ module cpu_tb;
     begin
     
         // generate files needed to plot the waveform using GTKWave
-        $dumpfile("cpu_wavedata.vcd");
+        $dumpfile("cpu_wavedata29.vcd");
 		$dumpvars(0, cpu_tb);
         
         CLK = 1'b0;
@@ -96,13 +96,16 @@ module cpu(PC, INSTRUCTION, CLK, RESET);
     output reg [31:0] PC;
     wire ZERO,ISB,ISJ;
     reg [2:0] ALU_SELECT;
-    wire [7:0] OPERAND1, OPERAND2, RESULT, MUX1OUT, MUX2OUT;
+    wire [7:0] OPERAND1, OPERAND2, RESULT, MUX1OUT, MUX2OUT, MUX3RESULT;
     reg [7:0] twosComplement ,IMMEDIATE, OPCODE,OFFSET;
     reg [2:0] DESTINATION, SOURCE1, SOURCE2;
     reg WRITE , isSUBSTRACT, isIMMEDIATE, isBRANCH, isJUMP;
     reg [31:0] NEXT;
     wire[31:0] FINAL1,FINAL2,MUX3OUT, MUX4OUT;
     reg [31:0] targetAddress;
+    reg READsignal, WRITEsignal, MEMsignal;
+    wire [7:0] READdata;
+    wire WAITsignal;
 
 
 
@@ -118,7 +121,7 @@ module cpu(PC, INSTRUCTION, CLK, RESET);
     alu alu1(OPERAND1, MUX2OUT,ALU_SELECT, RESULT,ZERO);
   
     //Register file for reading from registers and writing to registers.
-    reg_file register(RESULT, OPERAND1, OPERAND2, DESTINATION, SOURCE1, SOURCE2, WRITE, CLK, RESET);
+    reg_file register(MUX3RESULT, OPERAND1, OPERAND2, DESTINATION, SOURCE1, SOURCE2, WRITE, CLK, RESET);
 
     //Extend the 8 bits OFFSET value to 32 bits.
     signextender sign_ex(OFFSET,FINAL1);
@@ -143,7 +146,9 @@ module cpu(PC, INSTRUCTION, CLK, RESET);
     MUX_JB mux_4(MUX3OUT,targetAddress,MUX4OUT,isJUMP);
 
 
-    
+    data_memory datamem1(CLK, RESET, READsignal, WRITEsignal, RESULT, OPERAND1, READdata, WAITsignal);
+
+    MUX mux3(READdata, RESULT, MUX3RESULT, MEMsignal);
    
     //Get the twos complement whenever OPERAND2 is available.
     always @(OPERAND2) begin          
@@ -156,15 +161,19 @@ module cpu(PC, INSTRUCTION, CLK, RESET);
          //Reset whenever there is a reset signal during positive edge clock.
         if(RESET) begin #1
         PC <= 32'd0; 
-
         //Assign the next address to PC according the NEXT address processed from the Instruction.
-        end else begin
-            #1 PC = MUX4OUT;    //PC is updated by nextAddress(MUX4OUT)
+        end 
+        else begin
+            if  (WAITsignal) begin
+                #40 PC = MUX4OUT;
+            end
+
+            else begin
+                #1 PC = MUX4OUT;    //PC is updated by nextAddress(MUX4OUT)
+            end
         end
     end
 
-
-    //PC+4 adder
     //Find the (PC+4) NEXT value and store it in OUT reg in this module and assign it to PC whenever there is a positive edge clock.
     always@(PC) begin               //when PC is changed 
         #1 NEXT = PC + 4;         //PC_register is updated by PC + 4
@@ -191,6 +200,7 @@ module cpu(PC, INSTRUCTION, CLK, RESET);
                     isBRANCH=1'b0;
                     isJUMP=1'b0;
                     ALU_SELECT = 3'b000;
+                    MEMsignal = 1'b0;
                 end
             // MOV
             8'd1 : 
@@ -201,6 +211,7 @@ module cpu(PC, INSTRUCTION, CLK, RESET);
                     ALU_SELECT = 3'b000;
                     isBRANCH=1'b0;
                     isJUMP=1'b0; 
+                    MEMsignal = 1'b0;
                 end
             // ADD
             8'd2 : 
@@ -211,6 +222,7 @@ module cpu(PC, INSTRUCTION, CLK, RESET);
                     ALU_SELECT = 3'b001;
                     isBRANCH=1'b0;
                     isJUMP=1'b0; 
+                    MEMsignal = 1'b0;
                 end
             // SUB
             8'd3 : 
@@ -221,6 +233,7 @@ module cpu(PC, INSTRUCTION, CLK, RESET);
                     ALU_SELECT = 3'b001;
                     isBRANCH=1'b0;
                     isJUMP=1'b0; 
+                    MEMsignal = 1'b0;
                 end
             // AND
             8'd4 : 
@@ -231,6 +244,7 @@ module cpu(PC, INSTRUCTION, CLK, RESET);
                     ALU_SELECT = 3'b010;
                     isBRANCH=1'b0;
                     isJUMP=1'b0; 
+                    MEMsignal = 1'b0;
                 end
             // OR
             8'd5 : 
@@ -241,6 +255,7 @@ module cpu(PC, INSTRUCTION, CLK, RESET);
                     ALU_SELECT = 3'b011;
                     isBRANCH=1'b0;
                     isJUMP=1'b0; 
+                    MEMsignal = 1'b0;
                 end
 
             8'd6: begin // j
@@ -249,6 +264,7 @@ module cpu(PC, INSTRUCTION, CLK, RESET);
                     isIMMEDIATE = 1'b0;
                     isBRANCH=1'b0;
                     isJUMP=1'b1;
+                    MEMsignal = 1'b0;
                     end
 
             8'd7: begin // beq
@@ -257,8 +273,58 @@ module cpu(PC, INSTRUCTION, CLK, RESET);
                 isSUBSTRACT = 1'b1;
                 isIMMEDIATE=1'b0;
                 isBRANCH=1'b1;
-                isJUMP=1'b0;  
+                isJUMP=1'b0; 
+                MEMsignal = 1'b0; 
             end
+
+            8'd8: begin //lwd
+                WRITE = 1'b1;
+                ALU_SELECT = 3'b000;
+                isSUBSTRACT = 1'b0;
+                isIMMEDIATE = 1'b0;
+                isJUMP = 1'b0;
+                isBRANCH = 1'b0;
+                MEMsignal = 1'b1;
+                READsignal = 1'b1;
+                WRITEsignal = 1'b0;
+            end
+
+            8'd9: begin //lwi
+                WRITE = 1'b1;
+                ALU_SELECT = 3'b000;
+                isSUBSTRACT = 1'b0;
+                isIMMEDIATE = 1'b1;
+                isJUMP = 1'b0;
+                isBRANCH = 1'b0;
+                MEMsignal = 1'b1;
+                READsignal = 1'b1;
+                WRITEsignal = 1'b0;
+            end
+
+            8'd10: begin //swd
+                WRITE = 1'b0;
+                ALU_SELECT = 3'b000;
+                isSUBSTRACT = 1'b0;
+                isIMMEDIATE = 1'b0;
+                isJUMP = 1'b0;
+                isBRANCH = 1'b0;
+                MEMsignal = 1'b0;
+                READsignal = 1'b0;
+                WRITEsignal = 1'b1;
+            end
+
+            8'd11: begin //swd
+                WRITE = 1'b0;
+                ALU_SELECT = 3'b000;
+                isSUBSTRACT = 1'b0;
+                isIMMEDIATE = 1'b1;
+                isJUMP = 1'b0;
+                isBRANCH = 1'b0;
+                MEMsignal = 1'b0;
+                READsignal = 1'b0;
+                WRITEsignal = 1'b1;
+            end
+
         endcase
     end
 endmodule
