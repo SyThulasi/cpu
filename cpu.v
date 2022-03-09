@@ -1,6 +1,6 @@
 /*
 
-Lab5 Part 4
+Lab6 Part 1
 Group-29
 CPU 
 
@@ -10,6 +10,9 @@ module cpu_tb;
     reg CLK, RESET;
     wire [31:0] PC;
     reg [31:0] INSTRUCTION;
+    wire READsignal, WRITEsignal, BUSYWAITsignal;
+    wire [7:0] READDATA, ADDRESS, WRITEDATA;
+
     /* 
     ------------------------
      SIMPLE INSTRUCTION MEM
@@ -54,7 +57,9 @@ module cpu_tb;
      CPU
     -----
     */
-    cpu mycpu(PC, INSTRUCTION, CLK, RESET);
+    cpu mycpu(PC, INSTRUCTION, CLK, RESET, READsignal,WRITEsignal, ADDRESS, WRITEDATA, READDATA, BUSYWAITsignal);
+
+    data_memory datamem(CLK, RESET, READsignal, WRITEsignal, ADDRESS, WRITEDATA, READDATA, BUSYWAITsignal);
 
     initial
     begin
@@ -88,26 +93,29 @@ endmodule
 
 
 //CPU module for handling componentns ALU,Registers,Control unit, MUX, 2s'complements as one module
-module cpu(PC, INSTRUCTION, CLK, RESET);
+module cpu(PC, INSTRUCTION, CLK, RESET, READsignal, WRITEsignal,RESULT, OPERAND1, READdata, WAITsignal);
 
     //Declaring inputs,outputs,wires
     input [31:0] INSTRUCTION;
-    input CLK, RESET;
+    input CLK, RESET, WAITsignal;
     output reg [31:0] PC;
     wire ZERO,ISB,ISJ;
     reg [2:0] ALU_SELECT;
-    wire [7:0] OPERAND1, OPERAND2, RESULT, MUX1OUT, MUX2OUT, MUX3RESULT;
+    wire [7:0]  OPERAND2, MUX1OUT, MUX2OUT, MUX3RESULT;
     reg [7:0] twosComplement ,IMMEDIATE, OPCODE,OFFSET;
     reg [2:0] DESTINATION, SOURCE1, SOURCE2;
-    reg WRITE , isSUBSTRACT, isIMMEDIATE, isBRANCH, isJUMP;
+    reg WRITE , isSUBSTRACT, isIMMEDIATE, isBRANCH, isJUMP, MEMsignal;
     reg [31:0] NEXT;
     wire[31:0] FINAL1,FINAL2,MUX3OUT, MUX4OUT;
     reg [31:0] targetAddress;
-    reg READsignal, WRITEsignal, MEMsignal;
-    wire [7:0] READdata;
-    wire WAITsignal;
 
+    output reg READsignal, WRITEsignal;
+    input [7:0] READdata;
+    wire WRITE_FINAL;
+    output [7:0] OPERAND1,RESULT;
+    
 
+    assign WRITE_FINAL=WRITE & !WAITsignal;
 
     //Create instances for all modules
 
@@ -121,7 +129,7 @@ module cpu(PC, INSTRUCTION, CLK, RESET);
     alu alu1(OPERAND1, MUX2OUT,ALU_SELECT, RESULT,ZERO);
   
     //Register file for reading from registers and writing to registers.
-    reg_file register(MUX3RESULT, OPERAND1, OPERAND2, DESTINATION, SOURCE1, SOURCE2, WRITE, CLK, RESET);
+    reg_file register(MUX3RESULT, OPERAND1, OPERAND2, DESTINATION, SOURCE1, SOURCE2, WRITE_FINAL, CLK, RESET);
 
     //Extend the 8 bits OFFSET value to 32 bits.
     signextender sign_ex(OFFSET,FINAL1);
@@ -146,10 +154,12 @@ module cpu(PC, INSTRUCTION, CLK, RESET);
     MUX_JB mux_4(MUX3OUT,targetAddress,MUX4OUT,isJUMP);
 
 
-    data_memory datamem1(CLK, RESET, READsignal, WRITEsignal, RESULT, OPERAND1, READdata, WAITsignal);
-
+    //--------------------------------------------------------------------------
+    //This MUX will select whether to choose ALU result or datamemory read data value 
     MUX mux3(READdata, RESULT, MUX3RESULT, MEMsignal);
+    //-----------------------------------------------------------------------------
    
+
     //Get the twos complement whenever OPERAND2 is available.
     always @(OPERAND2) begin          
         twosComplement = #1 (~OPERAND2 +1);   //taking the compliment of the REGOUT2
@@ -159,15 +169,11 @@ module cpu(PC, INSTRUCTION, CLK, RESET);
     //Assign the next PC value  to PC whenever there is a positive edge clock.
     always @(posedge CLK ) begin  
          //Reset whenever there is a reset signal during positive edge clock.
-        if(RESET) begin #1
-        PC <= 32'd0; 
-        //Assign the next address to PC according the NEXT address processed from the Instruction.
-        end 
-        else begin
-            if  (WAITsignal) begin
-                #40 PC = MUX4OUT;
-            end
 
+        if (WAITsignal == 1'b0) begin
+            if(RESET) begin 
+               #1  PC <= 32'd0;
+            end
             else begin
                 #1 PC = MUX4OUT;    //PC is updated by nextAddress(MUX4OUT)
             end
@@ -178,6 +184,7 @@ module cpu(PC, INSTRUCTION, CLK, RESET);
     always@(PC) begin               //when PC is changed 
         #1 NEXT = PC + 4;         //PC_register is updated by PC + 4
     end
+
 
 
     always @(INSTRUCTION) begin
@@ -313,7 +320,7 @@ module cpu(PC, INSTRUCTION, CLK, RESET);
                 WRITEsignal = 1'b1;
             end
 
-            8'd11: begin //swd
+            8'd11: begin //swi
                 WRITE = 1'b0;
                 ALU_SELECT = 3'b000;
                 isSUBSTRACT = 1'b0;
