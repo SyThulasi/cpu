@@ -3,7 +3,7 @@ Lab5
 Group-29
 Register File
 */
-`timescale 1ns/100ps
+
 module reg_file(IN, OUT1, OUT2, INADDRESS, OUT1ADDRESS, OUT2ADDRESS, WRITE, CLK, RESET);
 //Defining all the required variables
 
@@ -41,16 +41,10 @@ module reg_file(IN, OUT1, OUT2, INADDRESS, OUT1ADDRESS, OUT2ADDRESS, WRITE, CLK,
         end
 
         //If RESET=0, and WRITE=1 we have to write the given data to requested register.
-        else begin
-            #0.1
-            if (WRITE) begin
-              #0.9 Registers[INADDRESS] = IN;
-            end
-        end
+        else if (WRITE)
+           #1 Registers[INADDRESS] = IN;
+      
     end
-/*     initial begin
-     #250 $display($time, "%d %d %d %d %d %d %d %d\n", Registers[0], Registers[1], Registers[2], Registers[3], Registers[4], Registers[5], Registers[6], Registers[7]);
-     end */
 
 endmodule
 
