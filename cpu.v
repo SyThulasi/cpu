@@ -1,10 +1,16 @@
 /*
 
+Lab6 Part 1
 Group-29
 CPU 
-Authors : Hariharan (E/18/128) and Thulasiyan (E/18/366)
 
 */
+
+// `include "alu.v"
+// `include "register.v"
+// `include "datamemory.v"
+// `include "dcache.v"
+`timescale 1ns/100ps
 module cpu_tb;
 
     reg CLK, RESET;
@@ -12,6 +18,9 @@ module cpu_tb;
     reg [31:0] INSTRUCTION;
     wire READsignal, WRITEsignal, BUSYWAITsignal;
     wire [7:0] READDATA, ADDRESS, WRITEDATA;
+    wire mem_write,mem_read,mem_busywait;
+    wire [5:0] mem_address;
+    wire [31:0] mem_writedata,mem_readdata;
 
     /* 
     ------------------------
@@ -38,30 +47,26 @@ module cpu_tb;
         
         // METHOD 1: manually loading instructions to instr_mem
         
-        /* {instr_mem[10'd3], instr_mem[10'd2], instr_mem[10'd1], instr_mem[10'd0]}        = 32'b00000000_00000000_00000000_00001001;  //loadi 0     #9
-        {instr_mem[10'd7], instr_mem[10'd6], instr_mem[10'd5], instr_mem[10'd4]}        = 32'b00000110_00000001_00000000_00000000;  //j     #1     
-        {instr_mem[10'd11], instr_mem[10'd10], instr_mem[10'd9], instr_mem[10'd8]}      = 32'b00000000_00000001_00000000_00000100;  //loadi 1     #8
-        {instr_mem[10'd15], instr_mem[10'd14], instr_mem[10'd13], instr_mem[10'd12]}    = 32'b00000000_00000001_00000000_00001010;  //loadi 1     #10  
-        {instr_mem[10'd19], instr_mem[10'd18], instr_mem[10'd17], instr_mem[10'd16]}    = 32'b00000111_00000001_00000001_00000000;  //beq   #1  1  0
-        {instr_mem[10'd23], instr_mem[10'd22], instr_mem[10'd21], instr_mem[10'd20]}    = 32'b00000000_00000010_00000000_00001001;  //loadi 2     #9
-        {instr_mem[10'd27], instr_mem[10'd26], instr_mem[10'd25], instr_mem[10'd24]}    = 32'b00000111_00000001_00000010_00000000;  //beq   #1  2  0
-        {instr_mem[10'd31], instr_mem[10'd30], instr_mem[10'd29], instr_mem[10'd28]}    = 32'b00000011_00000011_00000000_00000001;  //sub   3   0  1
-        {instr_mem[10'd35], instr_mem[10'd34], instr_mem[10'd33], instr_mem[10'd32]}    = 32'b00000010_00000011_00000000_00000001;  //add   3   0  1 */
-        
+    
         // METHOD 2: loading instr_mem content from instr_mem.mem file
         $readmemb("instr_mem.mem", instr_mem);
     end
     
-    /* 
+    /* 3
     -----
      CPU
     -----
     */
-
-    //
     cpu mycpu(PC, INSTRUCTION, CLK, RESET, READsignal,WRITEsignal, ADDRESS, WRITEDATA, READDATA, BUSYWAITsignal);
 
-    data_memory datamem(CLK, RESET, READsignal, WRITEsignal, ADDRESS, WRITEDATA, READDATA, BUSYWAITsignal);
+    dcache my_dcache(CLK,RESET,WRITEsignal,READsignal,ADDRESS,WRITEDATA,READDATA,BUSYWAITsignal,mem_write,mem_read,mem_address,mem_writedata,mem_readdata,mem_busywait);          
+
+    data_memory datamem(CLK, RESET, mem_read, mem_write, mem_address, mem_writedata, mem_readdata, mem_busywait);
+
+    initial begin
+        //check the registers
+        $monitor($time, " REG0: %d  REG1: %d  REG2: %d  REG3: %d  REG4: %d  REG5: %d  REG6: %d  REG7: %d ",mycpu.register.Registers[0], mycpu.register.Registers[1], mycpu.register.Registers[2],mycpu.register.Registers[3], mycpu.register.Registers[4], mycpu.register.Registers[5],mycpu.register.Registers[6], mycpu.register.Registers[7]);
+    end
 
     initial
     begin
@@ -81,7 +86,7 @@ module cpu_tb;
         RESET= 1'b0;
         
         // finish simulation after some time
-        #500
+        #800
         $finish;
         
     end
@@ -110,14 +115,14 @@ module cpu(PC, INSTRUCTION, CLK, RESET, READsignal, WRITEsignal,RESULT, OPERAND1
     reg [31:0] NEXT;
     wire[31:0] FINAL1,FINAL2,MUX3OUT, MUX4OUT;
     reg [31:0] targetAddress;
+
     output reg READsignal, WRITEsignal;
     input [7:0] READdata;
     wire WRITE_FINAL;
     output [7:0] OPERAND1,RESULT;
-
     
-    // WRITE signal for register. which will enable when WRITE singal from control unit is enable and wait signal disable
-    assign WRITE_FINAL=WRITE & !WAITsignal;
+
+    assign WRITE_FINAL = WRITE & !WAITsignal;
 
     //Create instances for all modules
 
@@ -171,13 +176,13 @@ module cpu(PC, INSTRUCTION, CLK, RESET, READsignal, WRITEsignal,RESULT, OPERAND1
     //Assign the next PC value  to PC whenever there is a positive edge clock.
     always @(posedge CLK ) begin  
          //Reset whenever there is a reset signal during positive edge clock.
-
+         #0.1
         if (WAITsignal == 1'b0) begin
             if(RESET) begin 
-               #1  PC <= 32'd0;
+               #0.9  PC <= 32'd0;
             end
             else begin
-                #1 PC = MUX4OUT;    //PC is updated by nextAddress(MUX4OUT)
+               #0.9 PC = MUX4OUT;    //PC is updated by nextAddress(MUX4OUT)
             end
         end
     end
